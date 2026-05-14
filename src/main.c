@@ -1,26 +1,82 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <string.h>
 
 #define CASH_RL_BUFSIZE 1024
 
 #define CASH_TOK_BUFSIZE 64
 #define CASH_TOK_DELIM "\t\r\n\a"
 
-void cash_loop(void) {
-    char *line;
-    char **args;
+int cash_help(char **args);
+int cash_exit(char **args);
+
+char *builtin_str[] = {
+    "help",
+    "exit"
+};
+
+int (*builtin_func[]) (char **) = {
+    &cash_help,
+    &cash_exit
+};
+
+int cash_num_builtin() {
+    return sizeof(builtin_str) / sizeof(char *);
+}
+
+int cash_help(char **args) {
+    int i;
+    printf("commands:\n");
+
+    for (i = 0; i < cash_num_builtin(); i++) {
+        printf("%d. %s\n", i + 1, builtin_str[i]);
+    }
+
+    return 1;
+}
+
+int cash_exit(char **args) {
+    return 0;
+}
+
+int cash_launch(char **args) {
+    pid_t pid;
     int status;
 
-    do {
-        printf("> ");
-        line = cash_read_line();
-        args = cash_split_line(line);
-        status = cash_execute(args);
+    pid = fork();
+    if (pid == 0) {
+        if (execvp(args[0], args) == -1) {
+            perror("cash");
+        }
+        exit(EXIT_FAILURE);
+    } 
+    else if (pid < 0) {
+        perror("cash");
+    }
+    else {
+        do {
+            waitpid(pid, &status, WUNTRACED);
+        } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+    }
+    
+    return 1;
+}
 
-        free(line);
-        free(args);
-    } while (status);
+int cash_execute(char **args) {
+    int i;
+    if (args[0] == NULL) {
+        return -1;
+    }
+
+    for (i = 0; i < cash_num_builtin(); i++) {
+        if (strcmp(args[0], builtin_str[i]) == 0) {
+            return (*builtin_func[i])(args);
+        }
+    }
+
+    return cash_launch(args);
 }
 
 char *cash_read_line(void) {
@@ -87,8 +143,20 @@ char **cash_split_line(char *line) {
     return tokens;
 }
 
-void cash_execute() {
-    // ...
+void cash_loop(void) {
+    char *line;
+    char **args;
+    int status;
+
+    do {
+        printf("> ");
+        line = cash_read_line();
+        args = cash_split_line(line);
+        status = cash_execute(args);
+
+        free(line);
+        free(args);
+    } while (status);
 }
 
 int main(int argc, char **argv) {
